@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <title>إدارة المهام والمستخدمين</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      direction: rtl;
+      background-color: #f2f2f2;
+      padding: 20px;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    .form-section {
+      margin-bottom: 30px;
+      background-color: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      box-shadow: 0 0 8px #ccc;
+    }
+
+    .form-section h3 {
+      margin-bottom: 15px;
+    }
+
+    .add-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 15px;
+    }
+
+    .add-form input,
+    .add-form select,
+    .add-form button {
+      padding: 10px;
+      font-size: 14px;
+    }
+
+    .add-form input, .add-form select {
+      width: 250px;
+    }
+
+    .add-form button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: white;
+      margin-top: 15px;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 12px;
+      text-align: center;
+    }
+
+    th {
+      background-color: #343a40;
+      color: white;
+    }
+
+    .edit-input {
+      width: 100%;
+      border: none;
+      background-color: #f8f9fa;
+      text-align: center;
+    }
+
+    .task-divider {
+      border-top: 2px solid black;
+    }
+  </style>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc
+    } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCg_sA9HtxLLG_C2IuHGhoyiofXPuPS3Vc",
+      authDomain: "acfyb-d8298.firebaseapp.com",
+      projectId: "acfyb-d8298",
+      storageBucket: "acfyb-d8298.firebasestorage.app",
+      messagingSenderId: "116130071551",
+      appId: "1:116130071551:web:751d3ba96f46281f35ddca"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const taskForm = document.getElementById("taskForm");
+    const taskTable = document.getElementById("taskTableBody");
+    const taskSelector = document.getElementById("taskSelector");
+
+    const userForm = document.getElementById("userForm");
+    const userTable = document.getElementById("userTableBody");
+
+    taskForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const taskLink = document.getElementById("taskLink").value.trim();
+      const siteLink = document.getElementById("siteLink").value.trim();
+      const notes = document.getElementById("notes").value.trim();
+
+      if (taskLink && siteLink) {
+        await addDoc(collection(db, "tasks"), { taskLink, siteLink, notes });
+        taskForm.reset();
+      }
+    });
+
+    userForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const selectedTask = taskSelector.value;
+      const username = document.getElementById("username").value.trim();
+
+      if (selectedTask && username) {
+        await addDoc(collection(db, "users"), { taskLink: selectedTask, username });
+        userForm.reset();
+      }
+    });
+
+    function renderTasks(snapshot) {
+      taskTable.innerHTML = "";
+      taskSelector.innerHTML = '<option value="">اختر رابط مهمة</option>';
+
+      snapshot.forEach(docSnap => {
+        const { taskLink, siteLink, notes } = docSnap.data();
+        const id = docSnap.id;
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><input type="text" class="edit-input" value="${taskLink}" readonly></td>
+          <td><input type="text" class="edit-input" value="${siteLink}" readonly></td>
+          <td><input type="text" class="edit-input" value="${notes}" readonly></td>
+          <td><button onclick="deleteTask('${id}')">حذف</button></td>
+        `;
+        taskTable.appendChild(row);
+
+        const option = document.createElement("option");
+        option.value = taskLink;
+        option.textContent = taskLink;
+        taskSelector.appendChild(option);
+      });
+    }
+
+    function renderUsers(snapshot) {
+      userTable.innerHTML = "";
+      let lastTaskLink = null;
+
+      const sorted = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                          .sort((a, b) => a.taskLink.localeCompare(b.taskLink));
+
+      sorted.forEach(({ id, taskLink, username }) => {
+        if (taskLink !== lastTaskLink && lastTaskLink !== null) {
+          const dividerRow = document.createElement("tr");
+          dividerRow.innerHTML = `<td colspan="4" class="task-divider"></td>`;
+          userTable.appendChild(dividerRow);
+        }
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><input type="text" class="edit-input" value="${taskLink}" readonly></td>
+          <td><input type="text" class="edit-input" value="${username}" readonly></td>
+          <td><input type="checkbox"></td>
+          <td><input type="text" class="edit-input" placeholder="أكونت"></td>
+          <td><button onclick="deleteUser('${id}')">حذف</button></td>
+        `;
+        userTable.appendChild(row);
+
+        lastTaskLink = taskLink;
+      });
+    }
+
+    window.deleteTask = async function (id) {
+      await deleteDoc(doc(db, "tasks", id));
+    }
+
+    window.deleteUser = async function (id) {
+      await deleteDoc(doc(db, "users", id));
+    }
+
+    onSnapshot(collection(db, "tasks"), renderTasks);
+    onSnapshot(collection(db, "users"), renderUsers);
+  </script>
+</head>
+<body>
+  <div class="form-section">
+    <h3>إضافة مهمة</h3>
+    <form id="taskForm" class="add-form">
+      <input type="text" id="taskLink" placeholder="رابط المهمة" required />
+      <input type="text" id="siteLink" placeholder="لينك الموقع" required />
+      <input type="text" id="notes" placeholder="ملاحظات" />
+      <button type="submit">إضافة</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>رابط المهمة</th>
+          <th>لينك الموقع</th>
+          <th>ملاحظات</th>
+          <th>حذف</th>
+        </tr>
+      </thead>
+      <tbody id="taskTableBody"></tbody>
+    </table>
+  </div>
+
+  <div class="form-section">
+    <h3>إضافة مستخدم لمهمة</h3>
+    <form id="userForm" class="add-form">
+      <select id="taskSelector" required>
+        <option value="">اختر رابط مهمة</option>
+      </select>
+      <input type="text" id="username" placeholder="اسم المستخدم" required />
+      <button type="submit">ربط</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>رابط المهمة</th>
+          <th>اسم المستخدم</th>
+          <th>Check</th>
+          <th>أكونت</th>
+          <th>حذف</th>
+        </tr>
+      </thead>
+      <tbody id="userTableBody"></tbody>
+    </table>
+  </div>
+</body>
+</html>
