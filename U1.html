@@ -51,6 +51,11 @@
       color: white;
       border: none;
       cursor: pointer;
+      border-radius: 5px;
+    }
+
+    .add-form button:hover {
+      background-color: #0056b3;
     }
 
     table {
@@ -76,16 +81,105 @@
       border: none;
       background-color: #f8f9fa;
       text-align: center;
+      padding: 5px;
+    }
+
+    .edit-input:focus {
+      outline: 2px solid #007bff;
+      background-color: #fff;
+    }
+
+    .edit-input.editing {
+      background-color: #fff;
+      border: 1px solid #007bff;
     }
 
     .task-divider {
       border-top: 2px solid black;
     }
+
+    .action-buttons {
+      display: flex;
+      gap: 5px;
+      justify-content: center;
+    }
+
+    .action-buttons button {
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .edit-btn {
+      background-color: #ffc107;
+      color: #212529;
+    }
+
+    .save-btn {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .cancel-btn {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .delete-btn {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .edit-btn:hover {
+      background-color: #e0a800;
+    }
+
+    .save-btn:hover {
+      background-color: #218838;
+    }
+
+    .cancel-btn:hover {
+      background-color: #5a6268;
+    }
+
+    .delete-btn:hover {
+      background-color: #c82333;
+    }
+
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .message {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+      text-align: center;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .editing-row {
+      background-color: #fff3cd !important;
+    }
   </style>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import {
-      getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc
+      getFirestore, collection, addDoc, getDocs, onSnapshot, deleteDoc, doc, updateDoc
     } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -107,15 +201,64 @@
     const userForm = document.getElementById("userForm");
     const userTable = document.getElementById("userTableBody");
 
+    // Global variables to track editing states
+    let editingTasks = new Set();
+    let editingUsers = new Set();
+
+    // Utility functions
+    function showMessage(message, type = 'success') {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${type}`;
+      messageDiv.textContent = message;
+      
+      const container = document.querySelector('.form-section');
+      container.insertBefore(messageDiv, container.firstChild);
+      
+      setTimeout(() => {
+        messageDiv.remove();
+      }, 3000);
+    }
+
+    function validateTaskData(taskLink, siteLink) {
+      if (!taskLink.trim()) {
+        throw new Error('رابط المهمة مطلوب');
+      }
+      if (!siteLink.trim()) {
+        throw new Error('لينك الموقع مطلوب');
+      }
+      // Basic URL validation
+      try {
+        new URL(siteLink);
+      } catch {
+        if (!siteLink.startsWith('http')) {
+          throw new Error('لينك الموقع يجب أن يكون رابط صحيح');
+        }
+      }
+    }
+
+    function validateUserData(username) {
+      if (!username.trim()) {
+        throw new Error('اسم المستخدم مطلوب');
+      }
+      if (username.trim().length < 2) {
+        throw new Error('اسم المستخدم يجب أن يكون على الأقل حرفين');
+      }
+    }
+
+    // Task management functions
     taskForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const taskLink = document.getElementById("taskLink").value.trim();
       const siteLink = document.getElementById("siteLink").value.trim();
       const notes = document.getElementById("notes").value.trim();
 
-      if (taskLink && siteLink) {
+      try {
+        validateTaskData(taskLink, siteLink);
         await addDoc(collection(db, "tasks"), { taskLink, siteLink, notes });
         taskForm.reset();
+        showMessage('تم إضافة المهمة بنجاح');
+      } catch (error) {
+        showMessage(error.message, 'error');
       }
     });
 
@@ -124,12 +267,154 @@
       const selectedTask = taskSelector.value;
       const username = document.getElementById("username").value.trim();
 
-      if (selectedTask && username) {
+      try {
+        if (!selectedTask) {
+          throw new Error('يجب اختيار مهمة');
+        }
+        validateUserData(username);
         await addDoc(collection(db, "users"), { taskLink: selectedTask, username });
         userForm.reset();
+        showMessage('تم ربط المستخدم بالمهمة بنجاح');
+      } catch (error) {
+        showMessage(error.message, 'error');
       }
     });
 
+    // Task editing functions
+    window.editTask = function(id) {
+      editingTasks.add(id);
+      const row = document.querySelector(`#task-${id}`);
+      if (row) {
+        row.classList.add('editing-row');
+        const inputs = row.querySelectorAll('.edit-input');
+        inputs.forEach(input => {
+          input.readOnly = false;
+          input.classList.add('editing');
+        });
+        
+        const actionCell = row.querySelector('.action-buttons');
+        actionCell.innerHTML = `
+          <button class="save-btn" onclick="saveTask('${id}')">حفظ</button>
+          <button class="cancel-btn" onclick="cancelEditTask('${id}')">إلغاء</button>
+        `;
+      }
+    };
+
+    window.saveTask = async function(id) {
+      const row = document.querySelector(`#task-${id}`);
+      if (!row) return;
+
+      try {
+        row.classList.add('loading');
+        
+        const inputs = row.querySelectorAll('.edit-input');
+        const taskLink = inputs[0].value.trim();
+        const siteLink = inputs[1].value.trim();
+        const notes = inputs[2].value.trim();
+
+        validateTaskData(taskLink, siteLink);
+
+        await updateDoc(doc(db, "tasks", id), {
+          taskLink,
+          siteLink,
+          notes
+        });
+
+        editingTasks.delete(id);
+        showMessage('تم حفظ التعديلات بنجاح');
+      } catch (error) {
+        showMessage(error.message, 'error');
+      } finally {
+        row.classList.remove('loading');
+      }
+    };
+
+    window.cancelEditTask = function(id) {
+      editingTasks.delete(id);
+      // The onSnapshot will re-render the row with original data
+    };
+
+    // User editing functions
+    window.editUser = function(id) {
+      editingUsers.add(id);
+      const row = document.querySelector(`#user-${id}`);
+      if (row) {
+        row.classList.add('editing-row');
+        const inputs = row.querySelectorAll('.edit-input');
+        inputs.forEach(input => {
+          input.readOnly = false;
+          input.classList.add('editing');
+        });
+        
+        const actionCell = row.querySelector('.action-buttons');
+        actionCell.innerHTML = `
+          <button class="save-btn" onclick="saveUser('${id}')">حفظ</button>
+          <button class="cancel-btn" onclick="cancelEditUser('${id}')">إلغاء</button>
+        `;
+      }
+    };
+
+    window.saveUser = async function(id) {
+      const row = document.querySelector(`#user-${id}`);
+      if (!row) return;
+
+      try {
+        row.classList.add('loading');
+        
+        const inputs = row.querySelectorAll('.edit-input');
+        const taskLink = inputs[0].value.trim();
+        const username = inputs[1].value.trim();
+        const account = inputs[2].value.trim();
+
+        if (!taskLink) {
+          throw new Error('رابط المهمة مطلوب');
+        }
+        validateUserData(username);
+
+        await updateDoc(doc(db, "users", id), {
+          taskLink,
+          username,
+          account: account || ''
+        });
+
+        editingUsers.delete(id);
+        showMessage('تم حفظ التعديلات بنجاح');
+      } catch (error) {
+        showMessage(error.message, 'error');
+      } finally {
+        row.classList.remove('loading');
+      }
+    };
+
+    window.cancelEditUser = function(id) {
+      editingUsers.delete(id);
+      // The onSnapshot will re-render the row with original data
+    };
+
+    // Delete functions
+    window.deleteTask = async function (id) {
+      if (confirm('هل أنت متأكد من حذف هذه المهمة؟')) {
+        try {
+          await deleteDoc(doc(db, "tasks", id));
+          showMessage('تم حذف المهمة بنجاح');
+        } catch (error) {
+          showMessage('فشل في حذف المهمة', 'error');
+        }
+      }
+    };
+
+    window.deleteUser = async function (id) {
+      if (confirm('هل أنت متأكد من حذف هذا المستخدم؟')) {
+        try {
+          await deleteDoc(doc(db, "users", id));
+          showMessage('تم حذف المستخدم بنجاح');
+        } catch (error) {
+          showMessage('فشل في حذف المستخدم', 'error');
+        }
+      }
+    };
+
+    // Render functions
     function renderTasks(snapshot) {
       taskTable.innerHTML = "";
       taskSelector.innerHTML = '<option value="">اختر رابط مهمة</option>';
@@ -137,16 +422,32 @@
       snapshot.forEach(docSnap => {
         const { taskLink, siteLink, notes } = docSnap.data();
         const id = docSnap.id;
+        const isEditing = editingTasks.has(id);
 
         const row = document.createElement("tr");
+        row.id = `task-${id}`;
+        if (isEditing) {
+          row.classList.add('editing-row');
+        }
+
         row.innerHTML = `
-          <td><input type="text" class="edit-input" value="${taskLink}" readonly></td>
-          <td><input type="text" class="edit-input" value="${siteLink}" readonly></td>
-          <td><input type="text" class="edit-input" value="${notes}" readonly></td>
-          <td><button onclick="deleteTask('${id}')">حذف</button></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${taskLink || ''}" ${!isEditing ? 'readonly' : ''}></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${siteLink || ''}" ${!isEditing ? 'readonly' : ''}></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${notes || ''}" ${!isEditing ? 'readonly' : ''}></td>
+          <td>
+            <div class="action-buttons">
+              ${isEditing ? 
+                `<button class="save-btn" onclick="saveTask('${id}')">حفظ</button>
+                 <button class="cancel-btn" onclick="cancelEditTask('${id}')">إلغاء</button>` :
+                `<button class="edit-btn" onclick="editTask('${id}')">تحرير</button>
+                 <button class="delete-btn" onclick="deleteTask('${id}')">حذف</button>`
+              }
+            </div>
+          </td>
         `;
         taskTable.appendChild(row);
 
+        // Add to task selector
         const option = document.createElement("option");
         option.value = taskLink;
         option.textContent = taskLink;
@@ -161,20 +462,35 @@
       const sorted = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
                           .sort((a, b) => a.taskLink.localeCompare(b.taskLink));
 
-      sorted.forEach(({ id, taskLink, username }) => {
+      sorted.forEach(({ id, taskLink, username, account }) => {
         if (taskLink !== lastTaskLink && lastTaskLink !== null) {
           const dividerRow = document.createElement("tr");
-          dividerRow.innerHTML = `<td colspan="4" class="task-divider"></td>`;
+          dividerRow.innerHTML = `<td colspan="5" class="task-divider"></td>`;
           userTable.appendChild(dividerRow);
         }
 
+        const isEditing = editingUsers.has(id);
         const row = document.createElement("tr");
+        row.id = `user-${id}`;
+        if (isEditing) {
+          row.classList.add('editing-row');
+        }
+
         row.innerHTML = `
-          <td><input type="text" class="edit-input" value="${taskLink}" readonly></td>
-          <td><input type="text" class="edit-input" value="${username}" readonly></td>
-          <td><input type="checkbox"></td>
-          <td><input type="text" class="edit-input" placeholder="أكونت"></td>
-          <td><button onclick="deleteUser('${id}')">حذف</button></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${taskLink || ''}" ${!isEditing ? 'readonly' : ''}></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${username || ''}" ${!isEditing ? 'readonly' : ''}></td>
+          <td><input type="checkbox" ${account ? 'checked' : ''}></td>
+          <td><input type="text" class="edit-input ${isEditing ? 'editing' : ''}" value="${account || ''}" placeholder="أكونت" ${!isEditing ? 'readonly' : ''}></td>
+          <td>
+            <div class="action-buttons">
+              ${isEditing ? 
+                `<button class="save-btn" onclick="saveUser('${id}')">حفظ</button>
+                 <button class="cancel-btn" onclick="cancelEditUser('${id}')">إلغاء</button>` :
+                `<button class="edit-btn" onclick="editUser('${id}')">تحرير</button>
+                 <button class="delete-btn" onclick="deleteUser('${id}')">حذف</button>`
+              }
+            </div>
+          </td>
         `;
         userTable.appendChild(row);
 
@@ -182,16 +498,16 @@
       });
     }
 
-    window.deleteTask = async function (id) {
-      await deleteDoc(doc(db, "tasks", id));
-    }
+    // Initialize real-time listeners
+    onSnapshot(collection(db, "tasks"), renderTasks, (error) => {
+      console.error("Error loading tasks:", error);
+      showMessage('فشل في تحميل المهام', 'error');
+    });
 
-    window.deleteUser = async function (id) {
-      await deleteDoc(doc(db, "users", id));
-    }
-
-    onSnapshot(collection(db, "tasks"), renderTasks);
-    onSnapshot(collection(db, "users"), renderUsers);
+    onSnapshot(collection(db, "users"), renderUsers, (error) => {
+      console.error("Error loading users:", error);
+      showMessage('فشل في تحميل المستخدمين', 'error');
+    });
   </script>
 </head>
 <body>
@@ -210,7 +526,7 @@
           <th>رابط المهمة</th>
           <th>لينك الموقع</th>
           <th>ملاحظات</th>
-          <th>حذف</th>
+          <th>الإجراءات</th>
         </tr>
       </thead>
       <tbody id="taskTableBody"></tbody>
@@ -234,7 +550,7 @@
           <th>اسم المستخدم</th>
           <th>Check</th>
           <th>أكونت</th>
-          <th>حذف</th>
+          <th>الإجراءات</th>
         </tr>
       </thead>
       <tbody id="userTableBody"></tbody>
